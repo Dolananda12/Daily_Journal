@@ -1,0 +1,15 @@
+# Frontend ignores
+daily-journal/node_modules/
+daily-journal/.next/
+daily-journal/out/
+daily-journal/build/
+daily-journal/.vercel/
+
+# Backend ignores
+daily-journal-api/target/
+
+# OS / Environment
+.DS_Store
+Thumbs.db
+*.env
+*.log

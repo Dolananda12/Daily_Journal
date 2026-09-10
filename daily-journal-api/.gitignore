@@ -1,0 +1,22 @@
+# Maven target
+/target/
+!.mvn/wrapper/maven-wrapper.jar
+!target/fallbacks/
+.mvn/timing.properties
+
+# IDE
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
