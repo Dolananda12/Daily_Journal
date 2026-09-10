@@ -1,6 +1,0 @@
-{
-  "buildCommand": "cd daily-journal && npm install && npm run build",
-  "outputDirectory": "daily-journal/.next",
-  "installCommand": "echo 'skip root install'",
-  "framework": "nextjs"
-}
