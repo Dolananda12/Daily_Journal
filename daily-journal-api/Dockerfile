@@ -1,8 +1,8 @@
 # Build stage
 FROM eclipse-temurin:21-jdk-alpine AS build
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
+COPY daily-journal-api/pom.xml .
+COPY daily-journal-api/src ./src
 
 # Download dependencies (cached layer)
 RUN apk add --no-cache maven && mvn dependency:go-offline -q
