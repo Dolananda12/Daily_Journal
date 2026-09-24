@@ -81,6 +81,13 @@ public class QuoteService {
         return fetched;
     }
 
+    /**
+     * Returns a fresh random quote on every call (bypasses daily cache).
+     */
+    public QuoteResponse getRandomQuote() {
+        return fetchFromApis();
+    }
+
     // ── Scheduled pre-fetch ──────────────────────────────────────
 
     /**

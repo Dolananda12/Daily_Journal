@@ -26,4 +26,9 @@ public class QuoteController {
     public ResponseEntity<QuoteResponse> getDailyQuote() {
         return ResponseEntity.ok(quoteService.getTodayQuote());
     }
+
+    @GetMapping("/random")
+    public ResponseEntity<QuoteResponse> getRandomQuote() {
+        return ResponseEntity.ok(quoteService.getRandomQuote());
+    }
 }
