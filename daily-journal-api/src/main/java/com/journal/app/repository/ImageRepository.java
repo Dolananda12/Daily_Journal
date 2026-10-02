@@ -22,12 +22,25 @@ public interface ImageRepository extends JpaRepository<Image, UUID> {
     Optional<Image> findByIdAndUserIdAndDeletedAtIsNull(UUID id, String userId);
 
     // Initial page - All
-    List<Image> findByUserIdAndStatusAndDeletedAtIsNullOrderByTakenAtDescIdDesc(
-            String userId, Pageable pageable);
+    @Query("""
+        SELECT i FROM Image i
+        WHERE i.userId = :userId
+          AND i.status = 'ready'
+          AND i.deletedAt IS NULL
+        ORDER BY i.takenAt DESC, i.id DESC
+    """)
+    List<Image> findInitialPage(@Param("userId") String userId, Pageable pageable);
 
     // Initial page - Favorites only
-    List<Image> findByUserIdAndStatusAndIsFavoriteTrueAndDeletedAtIsNullOrderByTakenAtDescIdDesc(
-            String userId, Pageable pageable);
+    @Query("""
+        SELECT i FROM Image i
+        WHERE i.userId = :userId
+          AND i.status = 'ready'
+          AND i.isFavorite = true
+          AND i.deletedAt IS NULL
+        ORDER BY i.takenAt DESC, i.id DESC
+    """)
+    List<Image> findInitialPageFavorites(@Param("userId") String userId, Pageable pageable);
 
     // Keyset pagination - All
     @Query("""

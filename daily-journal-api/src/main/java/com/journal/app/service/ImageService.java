@@ -204,9 +204,9 @@ public class ImageService {
             }
         } else {
             if (favOnly) {
-                images = imageRepository.findByUserIdAndStatusAndIsFavoriteTrueAndDeletedAtIsNullOrderByTakenAtDescIdDesc(userId, pageRequest);
+                images = imageRepository.findInitialPageFavorites(userId, pageRequest);
             } else {
-                images = imageRepository.findByUserIdAndStatusAndDeletedAtIsNullOrderByTakenAtDescIdDesc(userId, pageRequest);
+                images = imageRepository.findInitialPage(userId, pageRequest);
             }
         }
 
