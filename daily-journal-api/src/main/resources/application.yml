@@ -40,6 +40,12 @@ app:
   quote:
     primary-url: https://quotesapi.prayushadhikari.com.np/api/quotes/random
     fallback-url: https://zenquotes.io/api/random
+  supabase:
+    url: ${SUPABASE_URL:}
+    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+    bucket: ${SUPABASE_BUCKET:journal-images}
+    signed-url-ttl-seconds: ${SIGNED_URL_TTL_SECONDS:7200}
+    keep-originals: ${KEEP_ORIGINALS:false}
 
 springdoc:
   api-docs:
