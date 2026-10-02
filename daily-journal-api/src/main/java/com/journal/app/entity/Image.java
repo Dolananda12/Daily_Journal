@@ -1,17 +1,35 @@
 package com.journal.app.entity;
 
 import jakarta.persistence.*;
+import org.springframework.data.domain.Persistable;
 import java.time.Instant;
 import java.util.UUID;
 
 @Entity
 @Table(name = "images")
-public class Image {
+public class Image implements Persistable<UUID> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
+
+    @Transient
+    private boolean isNew = true;
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    public void setNew(boolean isNew) {
+        this.isNew = isNew;
+    }
+
+    @PostPersist
+    @PostLoad
+    void markNotNew() {
+        this.isNew = false;
+    }
 
     @Column(name = "user_id", nullable = false)
     private String userId = "owner";

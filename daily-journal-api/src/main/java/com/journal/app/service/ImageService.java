@@ -88,9 +88,10 @@ public class ImageService {
             img.setChecksumSha256(req.getChecksum());
             img.setBlurhash(req.getBlurhash());
             img.setTakenAt(takenAt);
+            img.setCreatedAt(Instant.now());
             img.setSource("upload");
 
-            imageRepository.save(img);
+            imageRepository.saveAndFlush(img);
 
             // 4. Generate signed upload URLs
             String displayUploadUrl = storageClient.createSignedUploadUrl(bucket, displayPath, 3600);
@@ -115,7 +116,7 @@ public class ImageService {
         }
 
         image.setStatus("ready");
-        Image saved = imageRepository.save(image);
+        Image saved = imageRepository.saveAndFlush(image);
 
         ImageResponse response = mapToResponse(saved, Map.of(), Map.of());
         fillSignedUrls(List.of(response));
@@ -180,11 +181,12 @@ public class ImageService {
         img.setSizeBytes((long) displayBytes.length);
         img.setChecksumSha256(checksum);
         img.setTakenAt(finalTakenAt);
+        img.setCreatedAt(Instant.now());
         img.setCaption(caption);
         img.setFavorite(isFavorite);
         img.setSource("upload");
 
-        Image saved = imageRepository.save(img);
+        Image saved = imageRepository.saveAndFlush(img);
         ImageResponse res = mapToResponse(saved, Map.of(), Map.of());
         fillSignedUrls(List.of(res));
         return res;
