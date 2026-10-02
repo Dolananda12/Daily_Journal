@@ -193,12 +193,21 @@ public class ImageService {
         int pageSize = Math.min(Math.max(limit, 1), 100);
         PageRequest pageRequest = PageRequest.of(0, pageSize + 1);
 
+        boolean favOnly = Boolean.TRUE.equals(favorite);
         List<Image> images;
         if (cursor != null && !cursor.isBlank()) {
             CursorDecoded decoded = decodeCursor(cursor);
-            images = imageRepository.findNextPage(userId, decoded.takenAt, decoded.id, favorite, fromDate, toDate, pageRequest);
+            if (favOnly) {
+                images = imageRepository.findNextPageFavorites(userId, decoded.takenAt, decoded.id, pageRequest);
+            } else {
+                images = imageRepository.findNextPage(userId, decoded.takenAt, decoded.id, pageRequest);
+            }
         } else {
-            images = imageRepository.findInitialPage(userId, favorite, fromDate, toDate, pageRequest);
+            if (favOnly) {
+                images = imageRepository.findByUserIdAndStatusAndIsFavoriteTrueAndDeletedAtIsNullOrderByTakenAtDescIdDesc(userId, pageRequest);
+            } else {
+                images = imageRepository.findByUserIdAndStatusAndDeletedAtIsNullOrderByTakenAtDescIdDesc(userId, pageRequest);
+            }
         }
 
         boolean hasMore = images.size() > pageSize;
