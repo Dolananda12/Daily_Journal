@@ -30,6 +30,45 @@ public class ImageController {
     }
 
     /**
+     * POST /api/images/upload
+     * Direct multipart upload endpoint (fallback and reliable single/multi-upload).
+     */
+    @PostMapping(value = "/upload", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ImageResponse> uploadDirect(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam(value = "thumb", required = false) org.springframework.web.multipart.MultipartFile thumb,
+            @RequestParam(value = "width", defaultValue = "0") int width,
+            @RequestParam(value = "height", defaultValue = "0") int height,
+            @RequestParam(value = "checksum", required = false) String checksum,
+            @RequestParam(value = "takenAt", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant takenAt,
+            @RequestParam(value = "caption", required = false) String caption,
+            @RequestParam(value = "favorite", defaultValue = "false") boolean favorite) {
+
+        try {
+            byte[] displayBytes = file.getBytes();
+            byte[] thumbBytes = thumb != null ? thumb.getBytes() : null;
+            String computedChecksum = checksum != null ? checksum : UUID.randomUUID().toString();
+
+            ImageResponse response = imageService.uploadDirect(
+                    DEFAULT_USER_ID,
+                    displayBytes,
+                    thumbBytes,
+                    file.getContentType(),
+                    width,
+                    height,
+                    computedChecksum,
+                    takenAt,
+                    caption,
+                    favorite
+            );
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
      * POST /api/images/upload-intents
      * Request signed upload URLs for a batch of images.
      */

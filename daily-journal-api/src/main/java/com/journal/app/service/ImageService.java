@@ -123,6 +123,70 @@ public class ImageService {
     }
 
     /**
+     * Direct upload fallback (accepts raw file + thumb from frontend and saves directly).
+     */
+    @Transactional
+    public ImageResponse uploadDirect(
+            String userId,
+            byte[] displayBytes,
+            byte[] thumbBytes,
+            String mimeType,
+            int width,
+            int height,
+            String checksum,
+            Instant takenAt,
+            String caption,
+            boolean isFavorite) {
+
+        // Check duplicate
+        Optional<Image> existing = imageRepository.findFirstByUserIdAndChecksumSha256AndDeletedAtIsNull(userId, checksum);
+        if (existing.isPresent() && "ready".equals(existing.get().getStatus())) {
+            ImageResponse dto = mapToResponse(existing.get(), Map.of(), Map.of());
+            fillSignedUrls(List.of(dto));
+            return dto;
+        }
+
+        UUID imageId = UUID.randomUUID();
+        Instant finalTakenAt = takenAt != null ? takenAt : Instant.now();
+        ZonedDateTime zdt = finalTakenAt.atZone(ZoneOffset.UTC);
+        String year = String.format("%04d", zdt.getYear());
+        String month = String.format("%02d", zdt.getMonthValue());
+
+        String displayPath = String.format("%s/%s/%s/%s.webp", userId, year, month, imageId);
+        String thumbPath = String.format("%s/%s/%s/%s_t.webp", userId, year, month, imageId);
+        String bucket = storageClient.getDefaultBucket();
+
+        // Upload to storage
+        storageClient.uploadFile(bucket, displayPath, displayBytes, mimeType);
+        if (thumbBytes != null && thumbBytes.length > 0) {
+            storageClient.uploadFile(bucket, thumbPath, thumbBytes, mimeType);
+        } else {
+            storageClient.uploadFile(bucket, thumbPath, displayBytes, mimeType);
+        }
+
+        Image img = new Image();
+        img.setId(imageId);
+        img.setUserId(userId);
+        img.setStatus("ready");
+        img.setStoragePathDisplay(displayPath);
+        img.setStoragePathThumb(thumbPath);
+        img.setMimeType(mimeType != null ? mimeType : "image/webp");
+        img.setWidth(width);
+        img.setHeight(height);
+        img.setSizeBytes((long) displayBytes.length);
+        img.setChecksumSha256(checksum);
+        img.setTakenAt(finalTakenAt);
+        img.setCaption(caption);
+        img.setFavorite(isFavorite);
+        img.setSource("upload");
+
+        Image saved = imageRepository.save(img);
+        ImageResponse res = mapToResponse(saved, Map.of(), Map.of());
+        fillSignedUrls(List.of(res));
+        return res;
+    }
+
+    /**
      * Keyset-paginated list of active images.
      */
     public ImagePageResponse listImages(String userId, String cursor, int limit, Boolean favorite, Instant fromDate, Instant toDate) {

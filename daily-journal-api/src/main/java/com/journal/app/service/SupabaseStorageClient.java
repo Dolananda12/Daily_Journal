@@ -201,6 +201,28 @@ public class SupabaseStorageClient {
     }
 
     /**
+     * Upload binary data directly to Supabase storage.
+     */
+    public boolean uploadFile(String bucket, String path, byte[] data, String contentType) {
+        if (!isConfigured()) return false;
+        try {
+            String endpoint = String.format("%s/storage/v1/object/%s/%s", supabaseUrl, bucket, path);
+            restClient.post()
+                    .uri(endpoint)
+                    .header("apikey", serviceRoleKey)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                    .contentType(MediaType.parseMediaType(contentType != null ? contentType : "image/webp"))
+                    .body(data)
+                    .retrieve()
+                    .toBodilessEntity();
+            return true;
+        } catch (Exception e) {
+            log.error("Failed to upload object to bucket={}, path={}: {}", bucket, path, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Check if object exists in bucket.
      */
     public boolean verifyObjectExists(String bucket, String path) {
