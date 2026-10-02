@@ -22,10 +22,12 @@ import java.util.UUID;
 public class ImageController {
 
     private final ImageService imageService;
+    private final com.journal.app.service.SupabaseStorageClient storageClient;
     private static final String DEFAULT_USER_ID = "owner";
 
-    public ImageController(ImageService imageService) {
+    public ImageController(ImageService imageService, com.journal.app.service.SupabaseStorageClient storageClient) {
         this.imageService = imageService;
+        this.storageClient = storageClient;
     }
 
     /**
@@ -169,5 +171,14 @@ public class ImageController {
                     .build();
         }
         return ResponseEntity.notFound().build();
+    }
+
+    /**
+     * GET /api/images/storage-status
+     * Diagnostic endpoint to check Supabase Storage health and auto-create bucket if missing.
+     */
+    @GetMapping("/storage-status")
+    public ResponseEntity<Map<String, Object>> getStorageStatus() {
+        return ResponseEntity.ok(storageClient.getStorageStatus());
     }
 }

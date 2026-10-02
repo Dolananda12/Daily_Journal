@@ -157,7 +157,11 @@ public class ImageService {
         String bucket = storageClient.getDefaultBucket();
 
         // Upload to storage
-        storageClient.uploadFile(bucket, displayPath, displayBytes, mimeType);
+        boolean displayOk = storageClient.uploadFile(bucket, displayPath, displayBytes, mimeType);
+        if (!displayOk) {
+            log.error("Direct upload failed to store binary file in bucket={} path={}", bucket, displayPath);
+            throw new RuntimeException("Failed to upload image file to storage. Please ensure Supabase storage bucket exists.");
+        }
         if (thumbBytes != null && thumbBytes.length > 0) {
             storageClient.uploadFile(bucket, thumbPath, thumbBytes, mimeType);
         } else {
@@ -246,9 +250,13 @@ public class ImageService {
                 .map(img -> {
                     ImageResponse res = mapToResponse(img, Map.of(), Map.of());
                     CachedUrl thumbCached = signedUrlCache.get(img.getStoragePathThumb());
-                    if (thumbCached != null) res.setThumbUrl(thumbCached.url());
+                    if (thumbCached != null && thumbCached.url() != null && !thumbCached.url().endsWith("/null")) {
+                        res.setThumbUrl(thumbCached.url());
+                    }
                     CachedUrl displayCached = signedUrlCache.get(img.getStoragePathDisplay());
-                    if (displayCached != null) res.setDisplayUrl(displayCached.url());
+                    if (displayCached != null && displayCached.url() != null && !displayCached.url().endsWith("/null")) {
+                        res.setDisplayUrl(displayCached.url());
+                    }
                     return res;
                 })
                 .toList();
@@ -363,18 +371,26 @@ public class ImageService {
         List<String> toFetch = new ArrayList<>();
 
         for (ImageResponse res : responses) {
-            if (res.getThumbUrl() == null) {
+            if (res.getThumbUrl() == null || res.getThumbUrl().endsWith("/null")) {
+                res.setThumbUrl(null);
                 String thumbPath = getThumbPath(res);
                 if (isCached(thumbPath, nowSec)) {
-                    res.setThumbUrl(signedUrlCache.get(thumbPath).url());
+                    String cached = signedUrlCache.get(thumbPath).url();
+                    if (cached != null && !cached.endsWith("/null")) {
+                        res.setThumbUrl(cached);
+                    }
                 } else {
                     toFetch.add(thumbPath);
                 }
             }
-            if (res.getDisplayUrl() == null) {
+            if (res.getDisplayUrl() == null || res.getDisplayUrl().endsWith("/null")) {
+                res.setDisplayUrl(null);
                 String displayPath = getDisplayPath(res);
                 if (isCached(displayPath, nowSec)) {
-                    res.setDisplayUrl(signedUrlCache.get(displayPath).url());
+                    String cached = signedUrlCache.get(displayPath).url();
+                    if (cached != null && !cached.endsWith("/null")) {
+                        res.setDisplayUrl(cached);
+                    }
                 } else {
                     toFetch.add(displayPath);
                 }
@@ -386,17 +402,25 @@ public class ImageService {
             Map<String, String> signed = storageClient.createBatchSignedReadUrls(bucket, toFetch, signedUrlTtlSeconds);
             long expirySec = nowSec + signedUrlTtlSeconds - 300;
             for (Map.Entry<String, String> entry : signed.entrySet()) {
-                signedUrlCache.put(entry.getKey(), new CachedUrl(entry.getValue(), expirySec));
+                if (entry.getValue() != null && !entry.getValue().endsWith("/null")) {
+                    signedUrlCache.put(entry.getKey(), new CachedUrl(entry.getValue(), expirySec));
+                }
             }
 
             for (ImageResponse res : responses) {
                 String thumbPath = getThumbPath(res);
                 if (res.getThumbUrl() == null && signedUrlCache.containsKey(thumbPath)) {
-                    res.setThumbUrl(signedUrlCache.get(thumbPath).url());
+                    String u = signedUrlCache.get(thumbPath).url();
+                    if (u != null && !u.endsWith("/null")) {
+                        res.setThumbUrl(u);
+                    }
                 }
                 String displayPath = getDisplayPath(res);
                 if (res.getDisplayUrl() == null && signedUrlCache.containsKey(displayPath)) {
-                    res.setDisplayUrl(signedUrlCache.get(displayPath).url());
+                    String u = signedUrlCache.get(displayPath).url();
+                    if (u != null && !u.endsWith("/null")) {
+                        res.setDisplayUrl(u);
+                    }
                 }
             }
         }

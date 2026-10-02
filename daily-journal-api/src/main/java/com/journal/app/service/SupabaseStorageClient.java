@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import jakarta.annotation.PostConstruct;
 import java.util.*;
 
 @Service
@@ -38,12 +39,112 @@ public class SupabaseStorageClient {
                 .build();
     }
 
+    @PostConstruct
+    public void init() {
+        if (isConfigured()) {
+            ensureBucketExists(defaultBucket);
+        }
+    }
+
+    public synchronized void ensureBucketExists(String bucket) {
+        if (!isConfigured()) return;
+        try {
+            String getEndpoint = String.format("%s/storage/v1/bucket/%s", supabaseUrl, bucket);
+            var res = restClient.get()
+                    .uri(getEndpoint)
+                    .header("apikey", serviceRoleKey)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                    .retrieve()
+                    .toBodilessEntity();
+            if (res.getStatusCode().is2xxSuccessful()) {
+                return;
+            }
+        } catch (Exception e) {
+            log.info("Bucket '{}' not verified via GET, attempting auto-creation: {}", bucket, e.getMessage());
+        }
+
+        try {
+            String createEndpoint = String.format("%s/storage/v1/bucket", supabaseUrl);
+            Map<String, Object> body = Map.of(
+                    "id", bucket,
+                    "name", bucket,
+                    "public", false,
+                    "file_size_limit", 52428800L
+            );
+
+            restClient.post()
+                    .uri(createEndpoint)
+                    .header("apikey", serviceRoleKey)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Supabase storage bucket '{}' created successfully", bucket);
+        } catch (Exception e) {
+            log.warn("Could not auto-create Supabase storage bucket '{}': {}", bucket, e.getMessage());
+        }
+    }
+
     public boolean isConfigured() {
         return !supabaseUrl.isBlank() && !serviceRoleKey.isBlank();
     }
 
     public String getDefaultBucket() {
         return defaultBucket;
+    }
+
+    public String formatStorageUrl(String url) {
+        if (url == null || url.isBlank() || "null".equalsIgnoreCase(url.trim())) return "";
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            return url;
+        }
+        if (url.startsWith("/storage/v1")) {
+            return supabaseUrl + url;
+        }
+        if (url.startsWith("/")) {
+            return supabaseUrl + "/storage/v1" + url;
+        }
+        return supabaseUrl + "/storage/v1/" + url;
+    }
+
+    public Map<String, Object> getStorageStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("configured", isConfigured());
+        status.put("supabaseUrl", supabaseUrl);
+        status.put("defaultBucket", defaultBucket);
+        if (!isConfigured()) {
+            status.put("status", "NOT_CONFIGURED");
+            return status;
+        }
+        try {
+            String endpoint = String.format("%s/storage/v1/bucket", supabaseUrl);
+            String response = restClient.get()
+                    .uri(endpoint)
+                    .header("apikey", serviceRoleKey)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + serviceRoleKey)
+                    .retrieve()
+                    .body(String.class);
+            JsonNode root = objectMapper.readTree(response);
+            List<String> bucketNames = new ArrayList<>();
+            if (root.isArray()) {
+                for (JsonNode b : root) {
+                    if (b.hasNonNull("name")) bucketNames.add(b.get("name").asText());
+                }
+            }
+            status.put("bucketsInProject", bucketNames);
+            boolean bucketFound = bucketNames.contains(defaultBucket);
+            if (!bucketFound) {
+                ensureBucketExists(defaultBucket);
+                status.put("autoCreatedAttempted", true);
+            }
+            status.put("bucketReady", true);
+            status.put("status", "HEALTHY");
+        } catch (Exception e) {
+            status.put("status", "ERROR");
+            status.put("error", e.getMessage());
+        }
+        return status;
     }
 
     /**
@@ -56,6 +157,7 @@ public class SupabaseStorageClient {
         }
 
         try {
+            ensureBucketExists(bucket);
             String endpoint = String.format("%s/storage/v1/object/upload/sign/%s/%s", supabaseUrl, bucket, path);
             Map<String, Object> body = Map.of("expiresIn", expiresInSeconds);
 
@@ -69,14 +171,8 @@ public class SupabaseStorageClient {
                     .body(String.class);
 
             JsonNode node = objectMapper.readTree(response);
-            String url = node.has("url") ? node.get("url").asText() : "";
-            if (url.startsWith("http://") || url.startsWith("https://")) {
-                return url;
-            }
-            if (url.startsWith("/")) {
-                return supabaseUrl + "/storage/v1" + url;
-            }
-            return supabaseUrl + "/storage/v1/" + url;
+            String url = node.hasNonNull("url") ? node.get("url").asText() : "";
+            return formatStorageUrl(url);
         } catch (Exception e) {
             log.error("Failed to generate signed upload URL for bucket={}, path={}: {}", bucket, path, e.getMessage());
             throw new RuntimeException("Could not generate upload URL: " + e.getMessage(), e);
@@ -114,20 +210,21 @@ public class SupabaseStorageClient {
             JsonNode root = objectMapper.readTree(response);
             if (root.isArray()) {
                 for (JsonNode item : root) {
-                    String path = item.has("path") ? item.get("path").asText() : null;
-                    String signedUrl = item.has("signedURL") ? item.get("signedURL").asText() :
-                                       item.has("signedUrl") ? item.get("signedUrl").asText() : null;
+                    if (item.hasNonNull("error")) {
+                        continue;
+                    }
+                    String path = item.hasNonNull("path") ? item.get("path").asText() : null;
+                    JsonNode signedNode = item.hasNonNull("signedURL") ? item.get("signedURL") :
+                                          item.hasNonNull("signedUrl") ? item.get("signedUrl") : null;
 
-                    if (path != null && signedUrl != null) {
-                        String fullUrl;
-                        if (signedUrl.startsWith("http://") || signedUrl.startsWith("https://")) {
-                            fullUrl = signedUrl;
-                        } else if (signedUrl.startsWith("/")) {
-                            fullUrl = supabaseUrl + "/storage/v1" + signedUrl;
-                        } else {
-                            fullUrl = supabaseUrl + "/storage/v1/" + signedUrl;
+                    if (path != null && signedNode != null && !signedNode.isNull()) {
+                        String signedUrl = signedNode.asText();
+                        if (signedUrl != null && !signedUrl.isBlank() && !"null".equalsIgnoreCase(signedUrl.trim())) {
+                            String fullUrl = formatStorageUrl(signedUrl);
+                            if (!fullUrl.isBlank()) {
+                                results.put(path, fullUrl);
+                            }
                         }
-                        results.put(path, fullUrl);
                     }
                 }
             }
@@ -162,15 +259,10 @@ public class SupabaseStorageClient {
                     .body(String.class);
 
             JsonNode node = objectMapper.readTree(response);
-            String url = node.has("signedURL") ? node.get("signedURL").asText() :
-                         node.has("signedUrl") ? node.get("signedUrl").asText() : "";
-            if (url.startsWith("http://") || url.startsWith("https://")) {
-                return url;
-            }
-            if (url.startsWith("/")) {
-                return supabaseUrl + "/storage/v1" + url;
-            }
-            return supabaseUrl + "/storage/v1/" + url;
+            JsonNode urlNode = node.hasNonNull("signedURL") ? node.get("signedURL") :
+                               node.hasNonNull("signedUrl") ? node.get("signedUrl") : null;
+            if (urlNode == null || urlNode.isNull()) return "";
+            return formatStorageUrl(urlNode.asText());
         } catch (Exception e) {
             log.error("Failed to sign read URL for bucket={}, path={}: {}", bucket, path, e.getMessage());
             return "";
