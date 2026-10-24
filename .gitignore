@@ -5,6 +5,12 @@ daily-journal/out/
 daily-journal/build/
 daily-journal/.vercel/
 
+# Mobile ignores
+daily-journal-mobile/node_modules/
+daily-journal-mobile/.expo/
+daily-journal-mobile/dist/
+daily-journal-mobile/web-build/
+
 # Backend ignores
 daily-journal-api/target/
 

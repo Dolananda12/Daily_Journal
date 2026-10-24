@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "daily-journal-mobile",
+    "slug": "daily-journal-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAF8F4"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.dolan.dailyjournal",
+      "adaptiveIcon": {
+        "backgroundColor": "#FAF8F4",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c4850ef0-9b0e-4d6c-9128-34820570e63d"
+      }
+    },
+    "plugins": [
+      "expo-splash-screen"
+    ]
+  }
+}

@@ -19,6 +19,10 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedOriginPatterns(
                     "https://*.vercel.app",
                     "http://localhost:*",
+                    "http://127.0.0.1:*",
+                    "http://10.0.2.2:*",
+                    "http://172.*.*.*:*",
+                    "http://192.168.*.*:*",
                     "http://100.*.*.*:*"
                 )
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
@@ -34,6 +38,10 @@ public class CorsConfig implements WebMvcConfigurer {
         config.setAllowedOriginPatterns(List.of(
                 "https://*.vercel.app",
                 "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://10.0.2.2:*",
+                "http://172.*.*.*:*",
+                "http://192.168.*.*:*",
                 "http://100.*.*.*:*"
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
