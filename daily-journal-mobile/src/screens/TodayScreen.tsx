@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -19,6 +20,7 @@ import {
   formatDisplayDate,
   formatShortDate,
 } from '../lib/dateUtils';
+import { syncTaskNotifications } from '../lib/notificationService';
 
 interface TodoItem {
   id: string;
@@ -46,15 +48,51 @@ interface CalendarEvent {
   event_date: string;
 }
 
+interface TargetItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 interface TodayScreenProps {
   selectedDate: string;
   onSelectDate: (date: string) => void;
   onOpenFailureRegister: () => void;
   onEntrySaved?: (entry: Entry) => void;
+  onUncompletedTasksChange?: (count: number) => void;
 }
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function getMonday(d: Date = new Date()): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+  date.setDate(diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function currentWeekKey(d: Date = new Date()): string {
+  const m = getMonday(d);
+  const y = m.getFullYear();
+  const mo = String(m.getMonth() + 1).padStart(2, '0');
+  const da = String(m.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
+function weekLabel(key: string): string {
+  if (!key) return '';
+  const [y, m, d] = key.split('-').map(Number);
+  const mon = new Date(y, m - 1, d);
+  const sun = new Date(mon);
+  sun.setDate(sun.getDate() + 6);
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  const startStr = mon.toLocaleDateString('en-US', opts);
+  const endStr = sun.toLocaleDateString('en-US', opts);
+  return `${startStr} – ${endStr}`;
 }
 
 export function TodayScreen({
@@ -62,6 +100,7 @@ export function TodayScreen({
   onSelectDate,
   onOpenFailureRegister,
   onEntrySaved,
+  onUncompletedTasksChange,
 }: TodayScreenProps) {
   // Quote
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -79,11 +118,22 @@ export function TodayScreen({
   const [hours, setHours] = useState(0);
   const [journalOpen, setJournalOpen] = useState(true);
 
-  // Approaching events
-  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
-
   const viewingToday = isToday(selectedDate);
   const viewingPast = isPastDate(selectedDate);
+
+  // Sync notification badge, live 24/7 notification, and daily reminder when tasks change
+  useEffect(() => {
+    if (viewingToday && !loading) {
+      const pending = todos.filter((t) => !t.done);
+      const uncompleted = pending.length;
+      const titles = pending.map((t) => t.text);
+      syncTaskNotifications(uncompleted, titles);
+      onUncompletedTasksChange?.(uncompleted);
+    }
+  }, [todos, viewingToday, loading, onUncompletedTasksChange]);
+
+  // Approaching events
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
 
   // Fetch Quote
   useEffect(() => {
@@ -123,20 +173,25 @@ export function TodayScreen({
     setCarriedOver(0);
     try {
       const res = await apiFetch(`/api/entries/${selectedDate}`);
+      let data: Entry | null = null;
       if (res.ok) {
-        const data: Entry = await res.json();
-        const loadedTodos = data?.todos ?? [];
-        setTodos(loadedTodos);
-        setAcademics(data?.academics_notes ?? '');
-        setLife(data?.life_notes ?? '');
-        setDiary(data?.diary_notes ?? '');
-        setHours(data?.hours_studied ?? 0);
-        setJournalOpen(
-          !!(data?.academics_notes || data?.life_notes || data?.diary_notes || (data?.hours_studied ?? 0) > 0)
-        );
+        const text = await res.text();
+        data = text ? JSON.parse(text) : null;
+      }
 
-        // If today and no tasks recorded yet, check yesterday for carryover
-        if (viewingToday && loadedTodos.length === 0 && !data?.academics_notes && !data?.life_notes) {
+      const loadedTodos = Array.isArray(data?.todos) ? data!.todos : [];
+      setTodos(loadedTodos);
+      setAcademics(data?.academics_notes ?? '');
+      setLife(data?.life_notes ?? '');
+      setDiary(data?.diary_notes ?? '');
+      setHours(data?.hours_studied ?? 0);
+      setJournalOpen(
+        !!(data?.academics_notes || data?.life_notes || data?.diary_notes || (data?.hours_studied ?? 0) > 0)
+      );
+
+      // If today and no tasks recorded yet in this entry, check previous entry for undone tasks
+      if (viewingToday && loadedTodos.length === 0) {
+        try {
           const todayD = new Date(selectedDate + 'T00:00:00');
           const prevD = new Date(todayD);
           prevD.setDate(todayD.getDate() - 1);
@@ -146,30 +201,57 @@ export function TodayScreen({
             String(prevD.getDate()).padStart(2, '0'),
           ].join('-');
 
-          try {
-            const prevRes = await apiFetch(`/api/entries/${prevStr}`);
-            if (prevRes.ok) {
-              const prevData = await prevRes.json();
-              const unfinished = (prevData?.todos ?? [])
-                .filter((t: TodoItem) => !t.done)
-                .map((t: TodoItem) => ({ ...t, id: uid(), done: false }));
-              if (unfinished.length > 0) {
-                setTodos(unfinished);
-                setCarriedOver(unfinished.length);
+          let carried: TodoItem[] = [];
+
+          // 1. Try yesterday
+          const prevRes = await apiFetch(`/api/entries/${prevStr}`);
+          if (prevRes.ok) {
+            const prevText = await prevRes.text();
+            const prevData = prevText ? JSON.parse(prevText) : null;
+            const unfinished = (prevData?.todos ?? [])
+              .filter((t: TodoItem) => !t.done)
+              .map((t: TodoItem) => ({ ...t, id: uid(), done: false }));
+            if (unfinished.length > 0) {
+              carried = unfinished;
+            }
+          }
+
+          // 2. If yesterday had no undone tasks, check most recent past entry
+          if (carried.length === 0) {
+            const listRes = await apiFetch('/api/entries');
+            if (listRes.ok) {
+              const listText = await listRes.text();
+              const listData = listText ? JSON.parse(listText) : [];
+              if (Array.isArray(listData)) {
+                const pastDates = listData
+                  .map((e: { entry_date: string }) => e.entry_date)
+                  .filter((d: string) => d < selectedDate)
+                  .sort((a: string, b: string) => b.localeCompare(a));
+
+                if (pastDates.length > 0 && pastDates[0] !== prevStr) {
+                  const mRes = await apiFetch(`/api/entries/${pastDates[0]}`);
+                  if (mRes.ok) {
+                    const mText = await mRes.text();
+                    const mData = mText ? JSON.parse(mText) : null;
+                    const unfinished = (mData?.todos ?? [])
+                      .filter((t: TodoItem) => !t.done)
+                      .map((t: TodoItem) => ({ ...t, id: uid(), done: false }));
+                    if (unfinished.length > 0) {
+                      carried = unfinished;
+                    }
+                  }
+                }
               }
             }
-          } catch {
-            // ignore carryover error
           }
+
+          if (carried.length > 0) {
+            setTodos(carried);
+            setCarriedOver(carried.length);
+          }
+        } catch {
+          // ignore carryover network error
         }
-      } else {
-        // Empty entry
-        setTodos([]);
-        setAcademics('');
-        setLife('');
-        setDiary('');
-        setHours(0);
-        setJournalOpen(true);
       }
     } catch {
       setTodos([]);
@@ -177,6 +259,7 @@ export function TodayScreen({
       setLife('');
       setDiary('');
       setHours(0);
+      setJournalOpen(true);
     } finally {
       setLoading(false);
     }
@@ -185,6 +268,91 @@ export function TodayScreen({
   useEffect(() => {
     loadEntry();
   }, [loadEntry]);
+
+  // Weekly targets state & fetch
+  const [weeklyTargets, setWeeklyTargets] = useState<TargetItem[]>([]);
+  const [weekKey, setWeekKey] = useState('');
+
+  const fetchWeeklyTargets = useCallback(async (dateStr: string) => {
+    const baseDate = new Date(dateStr + 'T00:00:00');
+    const wKey = currentWeekKey(baseDate);
+    setWeekKey(wKey);
+
+    try {
+      const r = await apiFetch(`/api/targets?type=weekly&key=${encodeURIComponent(wKey)}`);
+      if (!r.ok) {
+        setWeeklyTargets([]);
+        return;
+      }
+      const text = await r.text();
+      const data = text ? JSON.parse(text) : null;
+      setWeeklyTargets(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      setWeeklyTargets([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchWeeklyTargets(selectedDate);
+  }, [selectedDate, fetchWeeklyTargets]);
+
+  // Refetch weekly targets every time the user navigates back to Today/home
+  useFocusEffect(
+    useCallback(() => {
+      fetchWeeklyTargets(selectedDate);
+    }, [selectedDate, fetchWeeklyTargets])
+  );
+
+  const toggleWeeklyTarget = async (id: string) => {
+    const updated = weeklyTargets.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+    setWeeklyTargets(updated);
+    try {
+      await apiFetch(`/api/targets?type=weekly&key=${encodeURIComponent(weekKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: updated }),
+      });
+    } catch {
+      // ignore
+    }
+  };
+
+  const [newWeeklyText, setNewWeeklyText] = useState('');
+  const [addingWeekly, setAddingWeekly] = useState(false);
+
+  const addWeeklyTarget = async () => {
+    const trimmed = newWeeklyText.trim();
+    if (!trimmed) return;
+    const newItem: TargetItem = { id: uid(), text: trimmed, done: false };
+    const updated = [...weeklyTargets, newItem];
+    setWeeklyTargets(updated);
+    setNewWeeklyText('');
+    setAddingWeekly(false);
+
+    try {
+      await apiFetch(`/api/targets?type=weekly&key=${encodeURIComponent(weekKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: updated }),
+      });
+    } catch {
+      // rollback or ignore
+    }
+  };
+
+  const deleteWeeklyTarget = async (id: string) => {
+    const updated = weeklyTargets.filter((t) => t.id !== id);
+    setWeeklyTargets(updated);
+    try {
+      await apiFetch(`/api/targets?type=weekly&key=${encodeURIComponent(weekKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: updated }),
+      });
+    } catch {
+      // ignore
+    }
+  };
 
   // Task operations
   const toggleTodo = (id: string) => {
@@ -297,6 +465,87 @@ export function TodayScreen({
         )}
       </View>
 
+      {/* Weekly Targets (Displayed on TOP of Approaching Events) */}
+      <View style={styles.weeklyCard}>
+        <View style={styles.weeklyCardHeader}>
+          <View style={styles.weeklyTitleWrap}>
+            <Text style={styles.weeklyIcon}>⚡</Text>
+            <Text style={styles.weeklyCardTitle}>Weekly Targets</Text>
+            <Text style={styles.weeklyRange}>({weekLabel(weekKey)})</Text>
+          </View>
+          {weeklyTargets.length > 0 && (
+            <View style={styles.weeklyBadge}>
+              <Text style={styles.weeklyBadgeText}>
+                {weeklyTargets.filter((t) => t.done).length}/{weeklyTargets.length}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {weeklyTargets.map((target) => (
+          <View key={target.id} style={[styles.weeklyRow, target.done && styles.weeklyRowDone]}>
+            <TouchableOpacity
+              style={styles.weeklyCheckbox}
+              onPress={() => toggleWeeklyTarget(target.id)}
+            >
+              <Ionicons
+                name={target.done ? 'checkmark-circle' : 'ellipse-outline'}
+                size={18}
+                color={target.done ? theme.colors.accent : theme.colors.borderStrong}
+              />
+            </TouchableOpacity>
+            <Text style={[styles.weeklyText, target.done && styles.weeklyTextDone]}>
+              {target.text}
+            </Text>
+            <TouchableOpacity
+              style={styles.weeklyDeleteBtn}
+              onPress={() => deleteWeeklyTarget(target.id)}
+            >
+              <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        ))}
+
+        {weeklyTargets.length === 0 && !addingWeekly && (
+          <Text style={styles.weeklyEmptyText}>No weekly targets defined yet.</Text>
+        )}
+
+        {/* Inline Add Target directly on Today view */}
+        {addingWeekly ? (
+          <View style={styles.weeklyAddRow}>
+            <TextInput
+              style={styles.weeklyAddInput}
+              placeholder="Enter weekly target..."
+              placeholderTextColor={theme.colors.textMuted}
+              value={newWeeklyText}
+              onChangeText={setNewWeeklyText}
+              onSubmitEditing={addWeeklyTarget}
+              autoFocus
+            />
+            <TouchableOpacity style={styles.weeklyAddSubmitBtn} onPress={addWeeklyTarget}>
+              <Text style={styles.weeklyAddSubmitText}>Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.weeklyAddCancelBtn}
+              onPress={() => {
+                setAddingWeekly(false);
+                setNewWeeklyText('');
+              }}
+            >
+              <Ionicons name="close" size={16} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.weeklyAddBtn}
+            onPress={() => setAddingWeekly(true)}
+          >
+            <Ionicons name="add" size={15} color={theme.colors.accentDark} />
+            <Text style={styles.weeklyAddBtnText}>Add weekly target</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Approaching Events (Next 7 Days) */}
       {upcomingEvents.length > 0 && (
         <View style={styles.eventsCard}>
@@ -376,6 +625,9 @@ export function TodayScreen({
                   placeholder="Add a task…"
                   placeholderTextColor={theme.colors.textMuted}
                   editable={!viewingPast}
+                  multiline={true}
+                  scrollEnabled={false}
+                  textAlignVertical="top"
                 />
 
                 {!viewingPast && (
@@ -622,6 +874,134 @@ const styles = StyleSheet.create({
     color: theme.colors.accentDark,
     fontWeight: '600',
   },
+  // Weekly targets card styles (on top of approaching events)
+  weeklyCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(201, 169, 110, 0.45)',
+    borderLeftWidth: 4,
+    borderLeftColor: theme.colors.accent,
+    ...theme.shadow.sm,
+  },
+  weeklyCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  weeklyTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  weeklyIcon: {
+    fontSize: 14,
+  },
+  weeklyCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
+  },
+  weeklyRange: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    fontWeight: '500',
+  },
+  weeklyBadge: {
+    backgroundColor: theme.colors.accentFaint,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: theme.radius.round,
+  },
+  weeklyBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: theme.colors.accentDark,
+  },
+  weeklyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surface2,
+  },
+  weeklyRowDone: {
+    opacity: 0.6,
+  },
+  weeklyText: {
+    fontSize: 13,
+    color: theme.colors.text,
+    flex: 1,
+    lineHeight: 18,
+  },
+  weeklyTextDone: {
+    textDecorationLine: 'line-through',
+    color: theme.colors.textMuted,
+  },
+  weeklyCheckbox: {
+    paddingRight: 8,
+    paddingTop: 1,
+  },
+  weeklyDeleteBtn: {
+    padding: 2,
+    marginLeft: 6,
+  },
+  weeklyEmptyText: {
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    fontStyle: 'italic',
+    paddingVertical: 4,
+  },
+  weeklyAddRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surface2,
+  },
+  weeklyAddInput: {
+    flex: 1,
+    fontSize: 13,
+    color: theme.colors.text,
+    backgroundColor: theme.colors.surface2,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: theme.radius.sm,
+  },
+  weeklyAddSubmitBtn: {
+    backgroundColor: theme.colors.accentDark,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: theme.radius.sm,
+  },
+  weeklyAddSubmitText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  weeklyAddCancelBtn: {
+    padding: 6,
+  },
+  weeklyAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surface2,
+  },
+  weeklyAddBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.accentDark,
+  },
   eventsCard: {
     backgroundColor: theme.colors.accentFaint,
     borderRadius: theme.radius.md,
@@ -739,8 +1119,8 @@ const styles = StyleSheet.create({
   },
   todoItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
+    alignItems: 'flex-start',
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.surface2,
   },
@@ -749,12 +1129,15 @@ const styles = StyleSheet.create({
   },
   checkbox: {
     paddingRight: 8,
+    paddingTop: 3,
   },
   todoInput: {
     flex: 1,
     fontSize: 14,
     color: theme.colors.text,
-    paddingVertical: 4,
+    paddingVertical: 2,
+    lineHeight: 20,
+    textAlignVertical: 'top',
   },
   todoInputDone: {
     textDecorationLine: 'line-through',
@@ -762,6 +1145,7 @@ const styles = StyleSheet.create({
   },
   deleteTodoBtn: {
     padding: 4,
+    paddingTop: 3,
   },
   addTodoBtn: {
     flexDirection: 'row',

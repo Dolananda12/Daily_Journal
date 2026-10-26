@@ -14,6 +14,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
 import { getApiBaseUrl, setApiBaseUrl } from '../lib/apiClient';
+import {
+  requestNotificationPermissions,
+  sendTaskNotificationNow,
+} from '../lib/notificationService';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -151,6 +155,35 @@ export function SettingsModal({ visible, onClose, onUrlChanged }: SettingsModalP
               </View>
             )}
 
+            {/* Notifications Section */}
+            <View style={styles.notifSection}>
+              <View style={styles.notifHeader}>
+                <Ionicons name="notifications-outline" size={18} color={theme.colors.accentDark} />
+                <Text style={styles.notifTitle}>Task Notifications & Badges</Text>
+              </View>
+              <Text style={styles.notifDesc}>
+                Keeps your home screen app icon badge synced with your uncompleted tasks count, and alerts you at 8:00 PM if tasks remain undone.
+              </Text>
+              <TouchableOpacity
+                style={styles.notifTestBtn}
+                onPress={async () => {
+                  const granted = await requestNotificationPermissions();
+                  if (!granted) {
+                    Alert.alert(
+                      'Notifications Disabled',
+                      'Please enable notifications for Daily Journal in your device system settings.'
+                    );
+                    return;
+                  }
+                  await sendTaskNotificationNow(2);
+                  Alert.alert('Notification Sent', 'A test reminder notification was triggered!');
+                }}
+              >
+                <Ionicons name="paper-plane-outline" size={15} color={theme.colors.accentDark} />
+                <Text style={styles.notifTestBtnText}>Send Test Reminder</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Actions */}
             <View style={styles.buttonRow}>
               <TouchableOpacity
@@ -287,6 +320,47 @@ const styles = StyleSheet.create({
   },
   statusTextError: {
     color: theme.colors.danger,
+  },
+  notifSection: {
+    backgroundColor: theme.colors.surface2,
+    borderRadius: theme.radius.md,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  notifHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  notifTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.text,
+  },
+  notifDesc: {
+    fontSize: 12,
+    color: theme.colors.textMuted,
+    lineHeight: 17,
+    marginBottom: 10,
+  },
+  notifTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.accent,
+  },
+  notifTestBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.accentDark,
   },
   buttonRow: {
     flexDirection: 'row',

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -116,27 +117,73 @@ export function TargetsScreen() {
     }
   }, [subTab, weekKey, monthKey, semesterKey]);
 
+  const dirtyRef = useRef(false);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const subTabRef = useRef(subTab);
+  subTabRef.current = subTab;
+  const keyRef = useRef('');
+  keyRef.current = subTab === 'weekly' ? weekKey : subTab === 'monthly' ? monthKey : semesterKey;
+
   useEffect(() => {
     fetchTargets();
   }, [fetchTargets]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchTargets();
+      return () => {
+        // Auto-save on blur if user modified targets
+        if (dirtyRef.current) {
+          const type = subTabRef.current;
+          const key = keyRef.current;
+          const url = `/api/targets?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`;
+          apiFetch(url, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: itemsRef.current }),
+          }).catch(() => {});
+          dirtyRef.current = false;
+        }
+      };
+    }, [fetchTargets])
+  );
+
   const toggleItem = (id: string) => {
-    setItems((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
-    );
+    const next = items.map((t) => (t.id === id ? { ...t, done: !t.done } : t));
+    setItems(next);
+    itemsRef.current = next;
+    const type = subTab;
+    const key = subTab === 'weekly' ? weekKey : subTab === 'monthly' ? monthKey : semesterKey;
+    apiFetch(`/api/targets?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: next }),
+    }).catch(() => {});
   };
 
   const updateItemText = (id: string, text: string) => {
+    dirtyRef.current = true;
     setItems((prev) =>
       prev.map((t) => (t.id === id ? { ...t, text } : t))
     );
   };
 
   const deleteItem = (id: string) => {
-    setItems((prev) => prev.filter((t) => t.id !== id));
+    const next = items.filter((t) => t.id !== id);
+    setItems(next);
+    itemsRef.current = next;
+    const type = subTab;
+    const key = subTab === 'weekly' ? weekKey : subTab === 'monthly' ? monthKey : semesterKey;
+    apiFetch(`/api/targets?type=${encodeURIComponent(type)}&key=${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: next }),
+    }).catch(() => {});
   };
 
   const addItem = () => {
+    dirtyRef.current = true;
     setItems((prev) => [...prev, { id: uid(), text: '', done: false }]);
   };
 
@@ -158,6 +205,7 @@ export function TargetsScreen() {
       });
 
       if (res.ok) {
+        dirtyRef.current = false;
         setSavedSuccess(true);
         setTimeout(() => setSavedSuccess(false), 2500);
       } else {
@@ -317,6 +365,9 @@ export function TargetsScreen() {
                     onChangeText={(text) => updateItemText(item.id, text)}
                     placeholder="Enter target..."
                     placeholderTextColor={theme.colors.textMuted}
+                    multiline={true}
+                    scrollEnabled={false}
+                    textAlignVertical="top"
                   />
 
                   <TouchableOpacity
@@ -498,7 +549,7 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: theme.colors.surface2,
@@ -508,12 +559,15 @@ const styles = StyleSheet.create({
   },
   checkbox: {
     paddingRight: 8,
+    paddingTop: 3,
   },
   itemInput: {
     flex: 1,
     fontSize: 14,
     color: theme.colors.text,
-    paddingVertical: 4,
+    paddingVertical: 2,
+    lineHeight: 20,
+    textAlignVertical: 'top',
   },
   itemInputDone: {
     textDecorationLine: 'line-through',
@@ -521,6 +575,7 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     padding: 4,
+    paddingTop: 3,
   },
   addBtn: {
     flexDirection: 'row',

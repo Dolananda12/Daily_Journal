@@ -32,12 +32,14 @@ import {
   getMissedDaysThisWeek,
 } from './src/lib/dateUtils';
 import { apiFetch } from './src/lib/apiClient';
+import { requestNotificationPermissions } from './src/lib/notificationService';
 
 const Tab = createBottomTabNavigator();
 
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(() => getEffectiveTodayString());
   const [entryDates, setEntryDates] = useState<string[]>([]);
+  const [uncompletedCount, setUncompletedCount] = useState<number>(0);
 
   // Modals state
   const [commandmentsVisible, setCommandmentsVisible] = useState(false);
@@ -67,6 +69,9 @@ export default function App() {
     async function prepare() {
       const today = getEffectiveTodayString();
       try {
+        // Request notification permissions for badges and reminders
+        await requestNotificationPermissions();
+
         const lastShown = await AsyncStorage.getItem(SPLASH_STORAGE_KEY);
 
         // Once per day: If already shown today or already in RAM, skip splash instantly
@@ -181,13 +186,29 @@ export default function App() {
               },
             })}
           >
-            <Tab.Screen name="Today">
+            <Tab.Screen
+              name="Today"
+              options={{
+                tabBarBadge: uncompletedCount > 0 ? uncompletedCount : undefined,
+                tabBarBadgeStyle: {
+                  backgroundColor: theme.colors.accent,
+                  color: '#fff',
+                  fontSize: 10,
+                  fontWeight: '700',
+                  minWidth: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  lineHeight: 16,
+                },
+              }}
+            >
               {() => (
                 <TodayScreen
                   selectedDate={selectedDate}
                   onSelectDate={setSelectedDate}
                   onOpenFailureRegister={() => setFailuresVisible(true)}
                   onEntrySaved={() => refreshEntryMetas()}
+                  onUncompletedTasksChange={setUncompletedCount}
                 />
               )}
             </Tab.Screen>
