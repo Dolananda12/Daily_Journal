@@ -26,6 +26,7 @@ import { StatsScreen } from './src/screens/StatsScreen';
 import { PhotosScreen } from './src/screens/PhotosScreen';
 import { TargetsScreen } from './src/screens/TargetsScreen';
 import { BoardScreen } from './src/screens/BoardScreen';
+import { EventsScreen } from './src/screens/EventsScreen';
 
 import {
   getEffectiveTodayString,
@@ -180,6 +181,8 @@ export default function App() {
                   iconName = focused ? 'flag' : 'flag-outline';
                 } else if (route.name === 'Board') {
                   iconName = focused ? 'pin' : 'pin-outline';
+                } else if (route.name === 'Events') {
+                  iconName = focused ? 'calendar' : 'calendar-outline';
                 }
 
                 return <Ionicons name={iconName} size={size} color={color} />;
@@ -224,6 +227,8 @@ export default function App() {
             <Tab.Screen name="Targets" component={TargetsScreen} />
 
             <Tab.Screen name="Board" component={BoardScreen} />
+
+            <Tab.Screen name="Events" component={EventsScreen} />
           </Tab.Navigator>
         </NavigationContainer>
 
