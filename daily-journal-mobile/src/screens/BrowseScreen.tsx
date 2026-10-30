@@ -7,11 +7,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
 import { apiFetch } from '../lib/apiClient';
 import { getTodayString, formatDisplayDate } from '../lib/dateUtils';
+import { EntryDetailScreen } from './EntryDetailScreen';
 
 interface Entry {
   entry_date: string;
@@ -19,6 +20,7 @@ interface Entry {
   life_notes: string;
   hours_studied: number;
   diary_notes: string;
+  todos?: { id: string; text: string; done: boolean }[];
 }
 
 type FilterType = 'all' | 'academics' | 'life' | 'diary' | 'hours';
@@ -26,42 +28,56 @@ type FilterType = 'all' | 'academics' | 'life' | 'diary' | 'hours';
 function getDefaultFrom() {
   const d = new Date();
   d.setDate(d.getDate() - 30);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-interface BrowseScreenProps {
-  onSelectDate: (date: string) => void;
-}
-
-export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
+export function BrowseScreen() {
   const today = getTodayString();
-  const [from, setFrom] = useState(getDefaultFrom());
-  const [to, setTo] = useState(today);
+  const [from] = useState(getDefaultFrom());
   const [filter, setFilter] = useState<FilterType>('all');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Detail modal
+  const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/entries?from=${from}&to=${to}`);
+      const res = await apiFetch(`/api/entries?from=${from}&to=${today}`);
       if (res.ok) {
         const data = await res.json();
-        setEntries(Array.isArray(data) ? data : []);
+        setEntries(Array.isArray(data) ? data.slice().reverse() : []);
       }
     } catch {
       setEntries([]);
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, today]);
 
   useEffect(() => {
     fetchEntries();
   }, [fetchEntries]);
+
+  // Tap a card → fetch full entry and show detail screen
+  const handleCardPress = useCallback(async (entry: Entry) => {
+    setDetailLoading(true);
+    setSelectedEntry(entry); // show with what we have immediately
+    try {
+      const res = await apiFetch(`/api/entries/${entry.entry_date}`);
+      if (res.ok) {
+        const text = await res.text();
+        const full = text ? JSON.parse(text) : null;
+        if (full) setSelectedEntry(full);
+      }
+    } catch {
+      // keep the list data we already have
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
   const totalHours = entries.reduce((sum, e) => sum + (e.hours_studied ?? 0), 0);
   const entriesWithAcademics = entries.filter((e) => e.academics_notes?.trim());
@@ -86,7 +102,11 @@ export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
   return (
     <View style={styles.container}>
       {/* Filter pills */}
-      <View style={styles.filterPillsRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterPillsRow}
+      >
         {filterButtons.map((btn) => (
           <TouchableOpacity
             key={btn.key}
@@ -99,9 +119,9 @@ export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
-      {/* Summary KPI Strip */}
+      {/* Summary Strip */}
       <View style={styles.statsStrip}>
         <View style={styles.statChip}>
           <Text style={styles.statVal}>{entries.length}</Text>
@@ -134,22 +154,27 @@ export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.card}
-              activeOpacity={0.8}
-              onPress={() => onSelectDate(item.entry_date)}
+              activeOpacity={0.75}
+              onPress={() => handleCardPress(item)}
             >
               <View style={styles.cardHeader}>
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.cardDate}>{formatDisplayDate(item.entry_date)}</Text>
                   <Text style={styles.cardDateSub}>{item.entry_date}</Text>
                 </View>
-                {item.hours_studied > 0 && (
-                  <View style={styles.hoursBadge}>
-                    <Text style={styles.hoursNum}>{item.hours_studied}</Text>
-                    <Text style={styles.hoursUnit}>hrs</Text>
-                  </View>
-                )}
+                <View style={styles.cardRight}>
+                  {item.hours_studied > 0 && (
+                    <View style={styles.hoursBadge}>
+                      <Text style={styles.hoursNum}>{item.hours_studied}</Text>
+                      <Text style={styles.hoursUnit}>hrs</Text>
+                    </View>
+                  )}
+                  {/* Tap hint */}
+                  <Text style={styles.tapHint}>Tap to read →</Text>
+                </View>
               </View>
 
+              {/* Academics preview */}
               {item.academics_notes?.trim() ? (
                 <View style={styles.sectionWrap}>
                   <Text style={styles.sectionTitle}>📚 ACADEMICS</Text>
@@ -159,6 +184,7 @@ export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
                 </View>
               ) : null}
 
+              {/* Life preview */}
               {item.life_notes?.trim() ? (
                 <View style={styles.sectionWrap}>
                   <Text style={styles.sectionTitle}>🌱 LIFE</Text>
@@ -168,6 +194,7 @@ export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
                 </View>
               ) : null}
 
+              {/* Diary preview */}
               {item.diary_notes?.trim() ? (
                 <View style={[styles.sectionWrap, styles.diarySection]}>
                   <Text style={[styles.sectionTitle, { color: theme.colors.accentDark }]}>
@@ -190,27 +217,30 @@ export function BrowseScreen({ onSelectDate }: BrowseScreenProps) {
             <View style={styles.emptyWrap}>
               <Text style={styles.emptyIcon}>🔍</Text>
               <Text style={styles.emptyTitle}>No entries found</Text>
-              <Text style={styles.emptySub}>
-                Try adjusting the category filter or range.
-              </Text>
+              <Text style={styles.emptySub}>Try adjusting the category filter.</Text>
             </View>
           }
         />
       )}
+
+      {/* Full Entry Detail Screen (full-screen modal) */}
+      <EntryDetailScreen
+        visible={selectedEntry !== null}
+        entry={selectedEntry}
+        onClose={() => setSelectedEntry(null)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.bg,
-  },
+  container: { flex: 1, backgroundColor: theme.colors.bg },
+
   filterPillsRow: {
-    flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 12,
     gap: 8,
+    flexDirection: 'row',
   },
   pill: {
     flexDirection: 'row',
@@ -227,18 +257,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.accentFaint,
     borderColor: theme.colors.accent,
   },
-  pillIcon: {
-    fontSize: 12,
-  },
-  pillText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: theme.colors.text2,
-  },
-  pillTextActive: {
-    color: theme.colors.accentDark,
-    fontWeight: '700',
-  },
+  pillIcon: { fontSize: 12 },
+  pillText: { fontSize: 12, fontWeight: '500', color: theme.colors.text2 },
+  pillTextActive: { color: theme.colors.accentDark, fontWeight: '700' },
+
   statsStrip: {
     flexDirection: 'row',
     marginHorizontal: 16,
@@ -254,22 +276,16 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     alignItems: 'center',
   },
-  statVal: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: theme.colors.text,
-  },
+  statVal: { fontSize: 15, fontWeight: '700', color: theme.colors.text },
   statLbl: {
-    fontSize: 10,
+    fontSize: 9,
     color: theme.colors.textMuted,
     marginTop: 2,
     textTransform: 'uppercase',
+    letterSpacing: 0.3,
   },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
-    gap: 12,
-  },
+
+  listContent: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
   card: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.md,
@@ -290,11 +306,8 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
   },
-  cardDateSub: {
-    fontSize: 12,
-    color: theme.colors.textMuted,
-    marginTop: 2,
-  },
+  cardDateSub: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2 },
+  cardRight: { alignItems: 'flex-end', gap: 6 },
   hoursBadge: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -304,15 +317,15 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.round,
     gap: 2,
   },
-  hoursNum: {
-    fontSize: 13,
-    fontWeight: '700',
+  hoursNum: { fontSize: 13, fontWeight: '700', color: theme.colors.accentDark },
+  hoursUnit: { fontSize: 11, color: theme.colors.accentDark },
+  tapHint: {
+    fontSize: 10,
     color: theme.colors.accentDark,
+    fontWeight: '600',
+    opacity: 0.7,
   },
-  hoursUnit: {
-    fontSize: 11,
-    color: theme.colors.accentDark,
-  },
+
   sectionWrap: {
     marginTop: 10,
     backgroundColor: theme.colors.surface2,
@@ -331,41 +344,18 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
-  sectionBody: {
-    fontSize: 13,
-    color: theme.colors.text,
-    lineHeight: 18,
-  },
-  diaryBody: {
-    fontStyle: 'italic',
-  },
+  sectionBody: { fontSize: 13, color: theme.colors.text, lineHeight: 18 },
+  diaryBody: { fontStyle: 'italic' },
   emptyNote: {
     fontSize: 13,
     color: theme.colors.textMuted,
     fontStyle: 'italic',
     marginTop: 4,
   },
-  centerWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyWrap: {
-    alignItems: 'center',
-    paddingVertical: 48,
-  },
-  emptyIcon: {
-    fontSize: 32,
-    marginBottom: 8,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: theme.colors.text,
-    marginBottom: 4,
-  },
-  emptySub: {
-    fontSize: 13,
-    color: theme.colors.textMuted,
-  },
+
+  centerWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyWrap: { alignItems: 'center', paddingVertical: 48 },
+  emptyIcon: { fontSize: 32, marginBottom: 8 },
+  emptyTitle: { fontSize: 16, fontWeight: '600', color: theme.colors.text, marginBottom: 4 },
+  emptySub: { fontSize: 13, color: theme.colors.textMuted },
 });

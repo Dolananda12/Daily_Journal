@@ -4,7 +4,17 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, View, Text, Image, Platform, Animated } from 'react-native';
+import {
+  StyleSheet,
+  View,
+  Text,
+  Image,
+  Platform,
+  Animated,
+  Modal,
+  TouchableOpacity,
+  SafeAreaView as RNSafeAreaView,
+} from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -37,12 +47,159 @@ import { requestNotificationPermissions } from './src/lib/notificationService';
 
 const Tab = createBottomTabNavigator();
 
+// ─── More Drawer ──────────────────────────────────────────────────────────────
+interface MoreDrawerProps {
+  visible: boolean;
+  onClose: () => void;
+  onNavigate: (screen: 'Browse' | 'Stats' | 'Photos' | 'Board') => void;
+}
+
+function MoreDrawer({ visible, onClose, onNavigate }: MoreDrawerProps) {
+  const items: {
+    key: 'Browse' | 'Stats' | 'Photos' | 'Board';
+    icon: keyof typeof Ionicons.glyphMap;
+    label: string;
+    desc: string;
+  }[] = [
+    { key: 'Browse', icon: 'search-outline', label: 'Browse Entries', desc: 'Read all your past journal entries' },
+    { key: 'Stats', icon: 'bar-chart-outline', label: 'Stats', desc: 'Study hours, streaks and KPIs' },
+    { key: 'Photos', icon: 'images-outline', label: 'Photos', desc: 'Your photo memories gallery' },
+    { key: 'Board', icon: 'pin-outline', label: 'Thoughts Board', desc: 'Corkboard of sticky notes & ideas' },
+  ];
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={drawerStyles.backdrop}>
+        <RNSafeAreaView style={drawerStyles.sheet}>
+          <View style={drawerStyles.handle} />
+          <Text style={drawerStyles.title}>More</Text>
+          <Text style={drawerStyles.subtitle}>All features of your journal</Text>
+
+          <View style={drawerStyles.grid}>
+            {items.map((item) => (
+              <TouchableOpacity
+                key={item.key}
+                style={drawerStyles.item}
+                activeOpacity={0.7}
+                onPress={() => {
+                  onClose();
+                  onNavigate(item.key);
+                }}
+              >
+                <View style={drawerStyles.itemIconWrap}>
+                  <Ionicons name={item.icon} size={26} color={theme.colors.accentDark} />
+                </View>
+                <Text style={drawerStyles.itemLabel}>{item.label}</Text>
+                <Text style={drawerStyles.itemDesc} numberOfLines={2}>{item.desc}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={drawerStyles.closeBtn} onPress={onClose}>
+            <Text style={drawerStyles.closeBtnText}>Close</Text>
+          </TouchableOpacity>
+        </RNSafeAreaView>
+      </View>
+    </Modal>
+  );
+}
+
+const drawerStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 12,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.colors.borderStrong,
+    alignSelf: 'center',
+    marginBottom: 18,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+    marginBottom: 20,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 24,
+  },
+  item: {
+    width: '47%',
+    backgroundColor: theme.colors.bg,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: 16,
+    gap: 8,
+    ...theme.shadow.sm,
+  },
+  itemIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.accentFaint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.text,
+  },
+  itemDesc: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    lineHeight: 15,
+  },
+  closeBtn: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.border,
+  },
+  closeBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.text2,
+  },
+});
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(() => getEffectiveTodayString());
   const [entryDates, setEntryDates] = useState<string[]>([]);
   const [uncompletedCount, setUncompletedCount] = useState<number>(0);
 
-  // Modals state
+  // More drawer
+  const [moreVisible, setMoreVisible] = useState(false);
+  const [moreScreen, setMoreScreen] = useState<'Browse' | 'Stats' | 'Photos' | 'Board' | null>(null);
+
+  // Global modals
   const [commandmentsVisible, setCommandmentsVisible] = useState(false);
   const [calendarVisible, setCalendarVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -51,7 +208,6 @@ export default function App() {
   const [appIsReady, setAppIsReady] = useState(false);
   const [fadeAnim] = useState(new Animated.Value(1));
 
-  // Load entry metadata (for calendar dots & missed days count)
   const refreshEntryMetas = useCallback(async () => {
     try {
       const res = await apiFetch('/api/entries');
@@ -70,12 +226,9 @@ export default function App() {
     async function prepare() {
       const today = getEffectiveTodayString();
       try {
-        // Request notification permissions for badges and reminders
         await requestNotificationPermissions();
-
         const lastShown = await AsyncStorage.getItem(SPLASH_STORAGE_KEY);
 
-        // Once per day: If already shown today or already in RAM, skip splash instantly
         if (hasShownSplashInRam || lastShown === today) {
           await refreshEntryMetas();
           setAppIsReady(true);
@@ -83,10 +236,7 @@ export default function App() {
           return;
         }
 
-        // First launch of the day:
-        // Wait at least 5.0s OR whatever time is required to preload tasks, quote, and events
         const minTimerPromise = new Promise((resolve) => setTimeout(resolve, 5000));
-
         const preloadDataPromise = Promise.all([
           refreshEntryMetas(),
           apiFetch('/api/quote').catch(() => {}),
@@ -95,14 +245,11 @@ export default function App() {
         ]);
 
         await Promise.all([minTimerPromise, preloadDataPromise]);
-
-        // Persist so it only shows once today
         hasShownSplashInRam = true;
         await AsyncStorage.setItem(SPLASH_STORAGE_KEY, today);
       } catch (e) {
         console.warn(e);
       } finally {
-        // Fade out splash
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: 350,
@@ -135,6 +282,28 @@ export default function App() {
     );
   }
 
+  // ── More screen renderer ─────────────────────────────────────────────────
+  function renderMoreContent() {
+    if (!moreScreen) return null;
+    switch (moreScreen) {
+      case 'Browse':
+        return <BrowseScreen />;
+      case 'Stats':
+        return <StatsScreen />;
+      case 'Photos':
+        return <PhotosScreen />;
+      case 'Board':
+        return <BoardScreen />;
+    }
+  }
+
+  const moreScreenTitle: Record<string, string> = {
+    Browse: 'Browse Entries',
+    Stats: 'Stats',
+    Photos: 'Photos',
+    Board: 'Thoughts Board',
+  };
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -158,8 +327,8 @@ export default function App() {
                 backgroundColor: theme.colors.surface,
                 borderTopColor: theme.colors.border,
                 borderTopWidth: 1,
-                height: 60,
-                paddingBottom: 8,
+                height: 62,
+                paddingBottom: 10,
                 paddingTop: 6,
               },
               tabBarLabelStyle: {
@@ -168,27 +337,20 @@ export default function App() {
               },
               tabBarIcon: ({ focused, color, size }) => {
                 let iconName: keyof typeof Ionicons.glyphMap = 'book-outline';
-
                 if (route.name === 'Today') {
                   iconName = focused ? 'book' : 'book-outline';
-                } else if (route.name === 'Browse') {
-                  iconName = focused ? 'search' : 'search-outline';
-                } else if (route.name === 'Stats') {
-                  iconName = focused ? 'bar-chart' : 'bar-chart-outline';
-                } else if (route.name === 'Photos') {
-                  iconName = focused ? 'images' : 'images-outline';
                 } else if (route.name === 'Targets') {
                   iconName = focused ? 'flag' : 'flag-outline';
-                } else if (route.name === 'Board') {
-                  iconName = focused ? 'pin' : 'pin-outline';
                 } else if (route.name === 'Events') {
                   iconName = focused ? 'calendar' : 'calendar-outline';
+                } else if (route.name === 'More') {
+                  iconName = focused ? 'grid' : 'grid-outline';
                 }
-
                 return <Ionicons name={iconName} size={size} color={color} />;
               },
             })}
           >
+            {/* ── Core 3 tabs ── */}
             <Tab.Screen
               name="Today"
               options={{
@@ -216,21 +378,61 @@ export default function App() {
               )}
             </Tab.Screen>
 
-            <Tab.Screen name="Browse">
-              {() => <BrowseScreen onSelectDate={setSelectedDate} />}
-            </Tab.Screen>
-
-            <Tab.Screen name="Stats" component={StatsScreen} />
-
-            <Tab.Screen name="Photos" component={PhotosScreen} />
-
             <Tab.Screen name="Targets" component={TargetsScreen} />
 
-            <Tab.Screen name="Board" component={BoardScreen} />
-
             <Tab.Screen name="Events" component={EventsScreen} />
+
+            {/* ── More tab ── */}
+            <Tab.Screen
+              name="More"
+              options={{ tabBarLabel: 'More' }}
+              listeners={{
+                tabPress: (e) => {
+                  e.preventDefault();
+                  setMoreVisible(true);
+                },
+              }}
+            >
+              {() => <View style={{ flex: 1, backgroundColor: theme.colors.bg }} />}
+            </Tab.Screen>
           </Tab.Navigator>
         </NavigationContainer>
+
+        {/* ── More Drawer ── */}
+        <MoreDrawer
+          visible={moreVisible}
+          onClose={() => setMoreVisible(false)}
+          onNavigate={(screen) => {
+            setMoreScreen(screen);
+          }}
+        />
+
+        {/* ── More Screen Full-Screen Modal ── */}
+        <Modal
+          visible={moreScreen !== null}
+          animationType="slide"
+          onRequestClose={() => setMoreScreen(null)}
+        >
+          <SafeAreaView style={styles.moreScreenRoot} edges={['top', 'left', 'right']}>
+            {/* Header */}
+            <View style={styles.moreScreenHeader}>
+              <TouchableOpacity
+                style={styles.moreBackBtn}
+                onPress={() => setMoreScreen(null)}
+              >
+                <Ionicons name="arrow-back" size={22} color={theme.colors.text} />
+              </TouchableOpacity>
+              <Text style={styles.moreScreenTitle}>
+                {moreScreen ? moreScreenTitle[moreScreen] : ''}
+              </Text>
+            </View>
+
+            {/* Screen content */}
+            <View style={{ flex: 1 }}>
+              {renderMoreContent()}
+            </View>
+          </SafeAreaView>
+        </Modal>
 
         {/* Global Modals */}
         <CommandmentsModal
@@ -297,5 +499,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 2,
     textTransform: 'uppercase',
+  },
+  // More screen
+  moreScreenRoot: {
+    flex: 1,
+    backgroundColor: theme.colors.bg,
+  },
+  moreScreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  moreBackBtn: {
+    padding: 4,
+  },
+  moreScreenTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: theme.colors.text,
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' }),
   },
 });
